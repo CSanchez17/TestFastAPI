@@ -25,3 +25,4 @@ asgi-lifespan==2.1.0
 
 # Utilities
 anyio==4.13.0
+sqladmin==0.20.1

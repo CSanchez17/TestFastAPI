@@ -44,6 +44,14 @@ def test_get_all_users_with_auth(client: TestClient):
     assert any(user["username"] == "admin" for user in users)
 
 
+def test_users_me_is_not_interpreted_as_id(client: TestClient):
+    response = client.get("/users/me", headers=auth_headers(client))
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["username"] == "admin"
+
+
 def test_login_wrong_password(client: TestClient):
     response = client.post(
         "/auth/jwt/login",
