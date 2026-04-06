@@ -1,0 +1,27 @@
+# FastAPI Framework
+fastapi==0.135.3
+uvicorn==0.42.0
+pydantic==2.12.5
+python-multipart==0.0.20
+
+# Database
+SQLAlchemy==2.0.48
+aiosqlite==0.22.1
+alembic==1.18.4
+
+# Authentication / Users
+fastapi-users==15.0.5
+fastapi-users-db-sqlalchemy==7.0.0
+python-jose==3.5.0
+passlib==1.7.4
+bcrypt==5.0.0
+
+# Testing
+pytest==9.0.2
+pytest-asyncio==1.3.0
+pytest-cov==6.2.1
+httpx==0.28.1
+asgi-lifespan==2.1.0
+
+# Utilities
+anyio==4.13.0
