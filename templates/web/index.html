@@ -1,0 +1,53 @@
+{% extends "web/base.html" %}
+
+{% block title %}Mini Booking{% endblock %}
+
+{% block content %}
+  <main class="page">
+    <header class="hero">
+      <p class="eyebrow">Mini Booking</p>
+      <h1>Find a room and book in seconds</h1>
+      <p class="subtitle">Browse available rooms and book from the pop-up form.</p>
+    </header>
+
+    <section class="panel">
+      <div class="panel-heading">
+        <h2>Available Rooms</h2>
+        <button id="refresh-rooms" type="button">Refresh rooms</button>
+      </div>
+      <div id="rooms-grid" class="rooms-grid"></div>
+    </section>
+  </main>
+
+  <div id="booking-modal" class="booking-popout hidden" aria-hidden="true">
+    <div class="booking-popout-backdrop" id="booking-modal-close"></div>
+    <section class="booking-popout-card" role="dialog" aria-modal="true" aria-labelledby="booking-title">
+      <div class="booking-popout-header">
+        <h2 id="booking-title">Create Booking</h2>
+        <button id="booking-close-button" class="ghost-button" type="button">Close</button>
+      </div>
+
+      <form id="booking-form" class="grid-form">
+        <label>
+          Selected room
+          <input type="text" id="selected-room" readonly />
+        </label>
+        <input type="hidden" id="room-id" />
+        <label>
+          Start date
+          <input type="date" id="start-date" required />
+        </label>
+        <label>
+          End date
+          <input type="date" id="end-date" required />
+        </label>
+        <button type="submit">Book room</button>
+      </form>
+      <p id="booking-status" class="status"></p>
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="/web-static/web/app.js" defer></script>
+{% endblock %}

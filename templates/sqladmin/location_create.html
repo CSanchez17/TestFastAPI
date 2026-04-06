@@ -1,0 +1,51 @@
+{% extends "sqladmin/create.html" %}
+
+{% block tail %}
+{{ super() }}
+<script>
+(function () {
+  const countryCityMap = {{ model_view.country_city_map | tojson }};
+
+  function rebuildCityOptions() {
+    const countrySelect = document.getElementById("country");
+    const citySelect = document.getElementById("city");
+    if (!countrySelect || !citySelect) {
+      return;
+    }
+
+    const selectedCountry = countrySelect.value;
+    const currentCity = citySelect.value;
+    const cities = countryCityMap[selectedCountry] || [];
+
+    citySelect.innerHTML = "";
+    for (const city of cities) {
+      const option = document.createElement("option");
+      option.value = city;
+      option.text = city;
+      citySelect.appendChild(option);
+    }
+
+    if (cities.length === 0) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.text = "No cities available";
+      citySelect.appendChild(option);
+      citySelect.value = "";
+      return;
+    }
+
+    citySelect.value = cities.includes(currentCity) ? currentCity : cities[0];
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    const countrySelect = document.getElementById("country");
+    if (!countrySelect) {
+      return;
+    }
+
+    rebuildCityOptions();
+    countrySelect.addEventListener("change", rebuildCityOptions);
+  });
+})();
+</script>
+{% endblock %}

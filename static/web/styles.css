@@ -1,0 +1,232 @@
+:root {
+  --bg: #f7f4ef;
+  --surface: #fffdf9;
+  --ink: #1b1c1d;
+  --muted: #6f6357;
+  --accent: #0d6f63;
+  --accent-2: #de8a2f;
+  --border: #e4d9cc;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  color: var(--ink);
+  background: radial-gradient(circle at 10% 10%, #fff8ec 0%, var(--bg) 60%);
+}
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 1200;
+}
+
+.navbar {
+  backdrop-filter: blur(8px);
+}
+
+.page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.hero {
+  background: linear-gradient(110deg, #173f3a, #31544f);
+  color: #f4f6f5;
+  padding: 22px;
+  border-radius: 14px;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #d9ece8;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+
+.hero h1 {
+  margin: 6px 0;
+  font-size: clamp(24px, 4vw, 36px);
+}
+
+.subtitle {
+  margin: 0;
+  color: #d7e9e6;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.panel-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.grid-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+input,
+button {
+  font: inherit;
+}
+
+input {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+  padding: 10px 12px;
+}
+
+button {
+  border: 0;
+  border-radius: 10px;
+  padding: 11px 14px;
+  cursor: pointer;
+  background: var(--accent);
+  color: white;
+  font-weight: 700;
+}
+
+button:hover {
+  background: #0a5f55;
+}
+
+.rooms-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.room-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  background: #fff;
+}
+
+.room-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(13, 111, 99, 0.18);
+}
+
+.room-meta {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.quick-book {
+  margin-top: 8px;
+  width: 100%;
+  background: var(--accent-2);
+}
+
+.quick-book:hover {
+  background: #c57a28;
+}
+
+.status {
+  min-height: 20px;
+  font-weight: 600;
+}
+
+.status.error {
+  color: #a22424;
+}
+
+.status.ok {
+  color: #166a26;
+}
+
+.bookings-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.inline-link {
+  margin-left: 10px;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.inline-link:hover {
+  text-decoration: underline;
+}
+
+.booking-popout.hidden {
+  display: none;
+}
+
+.booking-popout {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 1300;
+}
+
+.booking-popout-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.booking-popout-card {
+  position: relative;
+  width: min(720px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  border-radius: 14px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 42px rgba(0, 0, 0, 0.2);
+}
+
+.booking-popout-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.ghost-button {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.ghost-button:hover {
+  background: rgba(13, 111, 99, 0.08);
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 14px;
+  }
+}

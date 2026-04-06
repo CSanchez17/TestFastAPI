@@ -10,6 +10,15 @@ def activate_host(client: TestClient, headers: dict[str, str]):
     assert response.status_code == 200
 
 
+def location_payload(address_line: str, city: str = "Berlin", country: str = "Germany", postal_code: str = "10115"):
+    return {
+        "address_line": address_line,
+        "city": city,
+        "country": country,
+        "postal_code": postal_code,
+    }
+
+
 def test_list_available_rooms_public(client: TestClient):
     response = client.get("/rooms")
 
@@ -18,6 +27,33 @@ def test_list_available_rooms_public(client: TestClient):
     assert isinstance(rooms, list)
     assert len(rooms) >= 1
     assert all(room["is_available"] for room in rooms)
+    assert "location" in rooms[0]
+
+
+def test_booking_frontend_page_loads(client: TestClient):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Find a room and book in seconds" in html
+    assert "booking-modal" in html
+    assert "/web-static/web/app.js" in html
+
+
+def test_booking_frontend_javascript_asset_is_served(client: TestClient):
+    response = client.get("/web-static/web/app.js")
+
+    assert response.status_code == 200
+    assert "openBookingModal" in response.text
+
+
+def test_my_bookings_page_loads(client: TestClient):
+    response = client.get("/my-bookings")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "My Bookings" in html
+    assert "/web-static/web/my-bookings.js" in html
 
 
 def test_get_room_found(client: TestClient):
@@ -41,6 +77,7 @@ def test_create_room_requires_auth(client: TestClient):
         "/rooms",
         json={
             "title": "NoAuth Room",
+            "location": location_payload("Hidden Street 1"),
             "description": "Should fail",
             "price_per_night": 100,
             "is_available": True,
@@ -59,6 +96,7 @@ def test_non_host_cannot_create_room(client: TestClient):
         "/rooms",
         json={
             "title": "Not host room",
+            "location": location_payload("Denied Road 5"),
             "description": "Denied",
             "price_per_night": 77,
             "is_available": True,
@@ -78,6 +116,7 @@ def test_host_can_create_update_delete_own_room(client: TestClient):
         "/rooms",
         json={
             "title": "Host Room",
+            "location": location_payload("Host Avenue 10"),
             "description": "Nice and clean",
             "price_per_night": 120,
             "is_available": True,
@@ -86,6 +125,7 @@ def test_host_can_create_update_delete_own_room(client: TestClient):
     )
     assert create_response.status_code == 200
     room_id = create_response.json()["id"]
+    assert create_response.json()["location"]["address_line"] == "Host Avenue 10"
 
     update_response = client.patch(
         f"/rooms/{room_id}",
@@ -110,6 +150,7 @@ def test_guest_cannot_delete_other_host_room(client: TestClient):
         "/rooms",
         json={
             "title": "Admin Room",
+            "location": location_payload("Admin Plaza 1"),
             "description": "Owned by admin",
             "price_per_night": 110,
             "is_available": True,
@@ -140,6 +181,7 @@ def test_guest_can_book_available_room(client: TestClient):
         "/rooms",
         json={
             "title": "Bookable room",
+            "location": location_payload("Booking Street 22"),
             "description": "Fresh available room",
             "price_per_night": 135,
             "is_available": True,
@@ -186,6 +228,7 @@ def test_guest_cannot_book_own_room(client: TestClient):
         "/rooms",
         json={
             "title": "My own room",
+            "location": location_payload("Owner Block 3"),
             "description": "Owner should not book this",
             "price_per_night": 80,
             "is_available": True,
@@ -220,6 +263,7 @@ def test_cannot_book_room_when_not_available(client: TestClient):
         "/rooms",
         json={
             "title": "Unavailable room",
+            "location": location_payload("Unavailable Lane 9"),
             "description": "Already occupied",
             "price_per_night": 99,
             "is_available": False,
@@ -259,6 +303,7 @@ def test_invalid_booking_dates_rejected(client: TestClient):
         "/rooms",
         json={
             "title": "Date validation room",
+            "location": location_payload("Calendar Road 11"),
             "description": "Used for invalid date test",
             "price_per_night": 88,
             "is_available": True,
@@ -293,6 +338,7 @@ def test_price_change_does_not_affect_existing_booking(client: TestClient):
         "/rooms",
         json={
             "title": "Price lock room",
+            "location": location_payload("Price Street 77"),
             "description": "Testing price protection",
             "price_per_night": 100,
             "is_available": True,
@@ -343,6 +389,7 @@ def test_host_dashboard_shows_guest_who_booked(client: TestClient):
         "/rooms",
         json={
             "title": "Dashboard room",
+            "location": location_payload("Dashboard Circle 4"),
             "description": "For dashboard assertions",
             "price_per_night": 140,
             "is_available": True,
@@ -381,6 +428,7 @@ def test_guest_dashboard_and_bookings_me(client: TestClient):
         "/rooms",
         json={
             "title": "Guest dashboard room",
+            "location": location_payload("Guest Harbor 6"),
             "description": "For guest dashboard assertions",
             "price_per_night": 90,
             "is_available": True,
@@ -434,6 +482,7 @@ def test_host_rooms_me_lists_owned_rooms(client: TestClient):
         "/rooms",
         json={
             "title": "Owned list room",
+            "location": location_payload("Owned Street 99"),
             "description": "For /rooms/me",
             "price_per_night": 70,
             "is_available": True,
@@ -447,3 +496,106 @@ def test_host_rooms_me_lists_owned_rooms(client: TestClient):
     assert response.status_code == 200
     rooms = response.json()
     assert any(room["id"] == room_id for room in rooms)
+
+
+def test_admin_room_detail_hides_raw_booking_relationships(client: TestClient):
+    host_headers = auth_headers(client)
+    activate_host(client, host_headers)
+
+    room_response = client.post(
+        "/rooms",
+        json={
+            "title": "Admin room detail",
+            "location": location_payload("Detail Avenue 2"),
+            "description": "Admin page cleanup",
+            "price_per_night": 101,
+            "is_available": True,
+        },
+        headers=host_headers,
+    )
+    assert room_response.status_code == 200
+    room_id = room_response.json()["id"]
+
+    response = client.get(f"/admin/room/details/{room_id}")
+    assert response.status_code == 200
+    html = response.text
+    assert "&lt;models.Booking object" not in html
+    assert "Owner Reference" in html
+    assert "Booking References" in html
+    assert "Location" in html
+    assert "/admin/location/details/" in html
+
+
+def test_admin_booking_detail_hides_raw_relationships_and_legacy_fields(client: TestClient):
+    host_headers = auth_headers(client)
+    activate_host(client, host_headers)
+
+    room_response = client.post(
+        "/rooms",
+        json={
+            "title": "Admin booking detail room",
+            "location": location_payload("Booking Detail Street 55"),
+            "description": "Admin booking page cleanup",
+            "price_per_night": 111,
+            "is_available": True,
+        },
+        headers=host_headers,
+    )
+    assert room_response.status_code == 200
+    room_id = room_response.json()["id"]
+
+    guest_payload = unique_user_payload()
+    assert client.post("/auth/register", json=guest_payload).status_code == 201
+    guest_headers = auth_headers(client, guest_payload["username"], guest_payload["password"])
+
+    start = date.today() + timedelta(days=20)
+    end = start + timedelta(days=2)
+    booking_response = client.post(
+        "/bookings",
+        json={"room_id": room_id, "start_date": start.isoformat(), "end_date": end.isoformat()},
+        headers=guest_headers,
+    )
+    assert booking_response.status_code == 200
+    booking_id = booking_response.json()["id"]
+
+    response = client.get(f"/admin/booking/details/{booking_id}")
+    assert response.status_code == 200
+    html = response.text
+    assert "&lt;models.User object" not in html
+    assert "&lt;models.Room object" not in html
+    assert "check_in" not in html
+    assert "check_out" not in html
+    assert "Total Price" in html
+    assert "Room Reference" in html
+    assert "Guest Reference" in html
+    assert "/admin/room/details/" in html
+    assert "/admin/user/details/" in html
+
+
+def test_admin_location_edit_uses_country_dependent_city_dropdown(client: TestClient):
+    response = client.get("/admin/location/edit/1")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'name="city"' in html
+    assert 'name="country"' in html
+    assert "<select" in html
+    assert "countryCityMap" in html
+    assert "Berlin" in html
+    assert "Germany" in html
+
+
+def test_admin_location_create_rejects_invalid_country_city_pair(client: TestClient):
+    response = client.post(
+        "/admin/location/create",
+        data={
+            "address_line": "Validation Street 3",
+            "country": "France",
+            "city": "Berlin",
+            "postal_code": "75001",
+            "save": "Save",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Selected city does not belong to the selected country" in response.text

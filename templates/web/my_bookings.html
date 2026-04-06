@@ -1,0 +1,28 @@
+{% extends "web/base.html" %}
+
+{% block title %}My Bookings | Mini Booking{% endblock %}
+
+{% block content %}
+  <main class="page">
+    <header class="hero">
+      <p class="eyebrow">Mini Booking</p>
+      <h1>My Bookings</h1>
+      <p class="subtitle">Review your reservations and booking status.</p>
+    </header>
+
+    <section class="panel">
+      <div class="panel-heading">
+        <h2>Your bookings</h2>
+        <div>
+          <button id="refresh-bookings" type="button">Refresh</button>
+          <a class="inline-link" href="/">Back to rooms</a>
+        </div>
+      </div>
+      <ul id="bookings-list" class="bookings-list"></ul>
+    </section>
+  </main>
+{% endblock %}
+
+{% block scripts %}
+  <script src="/web-static/web/my-bookings.js" defer></script>
+{% endblock %}

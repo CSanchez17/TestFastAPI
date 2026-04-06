@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
+from pathlib import Path as FileSystemPath
 
 from fastapi import Depends, FastAPI, HTTPException, Path, status
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from database import AsyncSessionLocal, init_db
-from models import Booking, Room, User
+from models import Booking, Location, Room, User
 from schemas import (
     BookingCreate,
     DashboardBookingRead,
@@ -21,6 +23,7 @@ from schemas import (
     UserUpdate,
 )
 from users import auth_backend, current_active_user, fastapi_users
+from web.routes import router as web_router
 
 try:
     from admin import setup_admin
@@ -35,6 +38,13 @@ async def lifespan(app: FastAPI):
 
 
 fastapi_app = FastAPI(lifespan=lifespan)
+BASE_DIR = FileSystemPath(__file__).resolve().parent
+fastapi_app.mount(
+    "/web-static",
+    StaticFiles(directory=str(BASE_DIR / "static")),
+    name="web-static",
+)
+fastapi_app.include_router(web_router)
 
 if setup_admin is not None:
     setup_admin(fastapi_app)
@@ -84,7 +94,7 @@ async def list_available_rooms():
     async with AsyncSessionLocal() as session:
         stmt = (
             select(Room)
-            .options(selectinload(Room.owner))
+            .options(selectinload(Room.owner), selectinload(Room.location))
             .where(Room.is_available.is_(True))
             .order_by(Room.id)
         )
@@ -97,7 +107,11 @@ async def list_available_rooms():
 async def get_room(room_id: int = Path(..., description="ID of the room", gt=0)):
     """Public endpoint: get room details by ID."""
     async with AsyncSessionLocal() as session:
-        stmt = select(Room).options(selectinload(Room.owner)).where(Room.id == room_id)
+        stmt = (
+            select(Room)
+            .options(selectinload(Room.owner), selectinload(Room.location))
+            .where(Room.id == room_id)
+        )
         result = await session.execute(stmt)
         room = result.scalar_one_or_none()
 
@@ -117,8 +131,13 @@ async def create_room(
         raise HTTPException(status_code=403, detail="Only hosts can create rooms")
 
     async with AsyncSessionLocal() as session:
+        location = Location(**room_in.location.model_dump())
+        session.add(location)
+        await session.flush()
+
         new_room = Room(
             title=room_in.title,
+            location_id=location.id,
             description=room_in.description,
             price_per_night=room_in.price_per_night,
             is_available=room_in.is_available,
@@ -127,7 +146,11 @@ async def create_room(
         session.add(new_room)
         await session.commit()
 
-        stmt = select(Room).options(selectinload(Room.owner)).where(Room.id == new_room.id)
+        stmt = (
+            select(Room)
+            .options(selectinload(Room.owner), selectinload(Room.location))
+            .where(Room.id == new_room.id)
+        )
         room = (await session.execute(stmt)).scalar_one()
         return RoomRead.model_validate(room)
 
@@ -143,7 +166,11 @@ async def update_room(
         raise HTTPException(status_code=403, detail="Only hosts can update rooms")
 
     async with AsyncSessionLocal() as session:
-        stmt = select(Room).options(selectinload(Room.owner)).where(Room.id == room_id)
+        stmt = (
+            select(Room)
+            .options(selectinload(Room.owner), selectinload(Room.location))
+            .where(Room.id == room_id)
+        )
         db_room = (await session.execute(stmt)).scalar_one_or_none()
 
         if db_room is None:
@@ -152,8 +179,19 @@ async def update_room(
             raise HTTPException(status_code=403, detail="You can only update your own rooms")
 
         updates = room_update.model_dump(exclude_unset=True)
+        location_updates = updates.pop("location", None)
         for field, value in updates.items():
             setattr(db_room, field, value)
+
+        if location_updates:
+            if db_room.location is None:
+                location = Location(**location_updates)
+                session.add(location)
+                await session.flush()
+                db_room.location_id = location.id
+            else:
+                for field, value in location_updates.items():
+                    setattr(db_room.location, field, value)
 
         await session.commit()
         await session.refresh(db_room)
@@ -242,7 +280,7 @@ async def get_my_rooms(current_user: User = Depends(current_active_user)):
     async with AsyncSessionLocal() as session:
         stmt = (
             select(Room)
-            .options(selectinload(Room.owner))
+            .options(selectinload(Room.owner), selectinload(Room.location))
             .where(Room.owner_id == current_user.id)
             .order_by(Room.id)
         )
