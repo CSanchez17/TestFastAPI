@@ -1,92 +1,204 @@
+from datetime import date, timedelta
+
 from fastapi.testclient import TestClient
 
 from .conftest import auth_headers, unique_user_payload
 
 
-def test_get_all_students(client: TestClient):
-    response = client.get("/students")
+def test_list_available_rooms_public(client: TestClient):
+    response = client.get("/rooms")
 
     assert response.status_code == 200
-    students = response.json()
-    assert isinstance(students, list)
-    assert any(s["name"] == "Alice" for s in students)
+    rooms = response.json()
+    assert isinstance(rooms, list)
+    assert len(rooms) >= 1
+    assert all(room["is_available"] for room in rooms)
 
 
-def test_get_student_found(client: TestClient):
-    response = client.get("/student/1")
+def test_get_room_found(client: TestClient):
+    response = client.get("/rooms/1")
 
     assert response.status_code == 200
     data = response.json()
     assert data["id"] == 1
-    assert data["name"] == "Alice"
+    assert "title" in data
 
 
-def test_get_student_not_found(client: TestClient):
-    response = client.get("/student/999999")
+def test_get_room_not_found(client: TestClient):
+    response = client.get("/rooms/999999")
 
     assert response.status_code == 404
-    assert response.json()["detail"] == "Student not found"
+    assert response.json()["detail"] == "Room not found"
 
 
-def test_get_student_invalid_id(client: TestClient):
-    response = client.get("/student/-1")
-
-    assert response.status_code == 422
-
-
-def test_create_student_requires_auth(client: TestClient):
+def test_create_room_requires_auth(client: TestClient):
     response = client.post(
-        "/student",
-        json={"name": "NoAuth", "age": 18, "year": "year 10"},
+        "/rooms",
+        json={
+            "title": "NoAuth Room",
+            "description": "Should fail",
+            "price_per_night": 100,
+            "is_available": True,
+        },
     )
 
     assert response.status_code == 401
 
 
-def test_create_and_delete_student_success(client: TestClient):
+def test_host_can_create_update_delete_own_room(client: TestClient):
     headers = auth_headers(client)
 
     create_response = client.post(
-        "/student",
-        json={"name": "Test Student", "age": 25, "year": "year 13"},
+        "/rooms",
+        json={
+            "title": "Host Room",
+            "description": "Nice and clean",
+            "price_per_night": 120,
+            "is_available": True,
+        },
         headers=headers,
     )
     assert create_response.status_code == 200
-    student_id = create_response.json()["id"]
+    room_id = create_response.json()["id"]
 
-    delete_response = client.delete(f"/student/{student_id}", headers=headers)
+    update_response = client.patch(
+        f"/rooms/{room_id}",
+        json={"price_per_night": 150},
+        headers=headers,
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["price_per_night"] == 150
+
+    delete_response = client.delete(f"/rooms/{room_id}", headers=headers)
     assert delete_response.status_code == 204
 
-    get_response = client.get(f"/student/{student_id}")
+    get_response = client.get(f"/rooms/{room_id}")
     assert get_response.status_code == 404
 
 
-def test_delete_student_not_found_returns_404(client: TestClient):
-    response = client.delete("/student/999999", headers=auth_headers(client))
-
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Student not found"
-
-
-def test_delete_student_forbidden(client: TestClient):
-    # Create a student as admin
+def test_guest_cannot_delete_other_host_room(client: TestClient):
     admin_headers = auth_headers(client)
-    create_response = client.post(
-        "/student",
-        json={"name": "Owned Student", "age": 20, "year": "year 10"},
+
+    room_response = client.post(
+        "/rooms",
+        json={
+            "title": "Admin Room",
+            "description": "Owned by admin",
+            "price_per_night": 110,
+            "is_available": True,
+        },
         headers=admin_headers,
     )
-    assert create_response.status_code == 200
-    student_id = create_response.json()["id"]
+    assert room_response.status_code == 200
+    room_id = room_response.json()["id"]
 
-    # Register a second user and try to delete admin's student
     payload = unique_user_payload()
-    client.post("/auth/register", json=payload)
-    other_headers = auth_headers(client, payload["username"], payload["password"])
+    register_response = client.post("/auth/register", json=payload)
+    assert register_response.status_code == 201
 
-    response = client.delete(f"/student/{student_id}", headers=other_headers)
-    assert response.status_code == 403
-    assert response.json()["detail"] == "You do not have permission to delete this student"
+    guest_headers = auth_headers(client, payload["username"], payload["password"])
 
-    # Cleanup
-    client.delete(f"/student/{student_id}", headers=admin_headers)
+    forbidden = client.delete(f"/rooms/{room_id}", headers=guest_headers)
+    assert forbidden.status_code == 403
+    assert forbidden.json()["detail"] == "You can only delete your own rooms"
+
+    client.delete(f"/rooms/{room_id}", headers=admin_headers)
+
+
+def test_guest_can_book_available_room(client: TestClient):
+    payload = unique_user_payload()
+    register_response = client.post("/auth/register", json=payload)
+    assert register_response.status_code == 201
+    guest_headers = auth_headers(client, payload["username"], payload["password"])
+
+    check_in = date.today() + timedelta(days=2)
+    check_out = check_in + timedelta(days=2)
+
+    response = client.post(
+        "/bookings",
+        json={
+            "room_id": 1,
+            "check_in": check_in.isoformat(),
+            "check_out": check_out.isoformat(),
+        },
+        headers=guest_headers,
+    )
+
+    assert response.status_code == 200
+    booking = response.json()
+    assert booking["room_id"] == 1
+    assert booking["guest_id"] >= 1
+
+
+def test_guest_cannot_book_own_room(client: TestClient):
+    payload = unique_user_payload()
+    register_response = client.post("/auth/register", json=payload)
+    assert register_response.status_code == 201
+
+    user_headers = auth_headers(client, payload["username"], payload["password"])
+    room_response = client.post(
+        "/rooms",
+        json={
+            "title": "My own room",
+            "description": "Owner should not book this",
+            "price_per_night": 80,
+            "is_available": True,
+        },
+        headers=user_headers,
+    )
+    assert room_response.status_code == 200
+    room_id = room_response.json()["id"]
+
+    check_in = date.today() + timedelta(days=5)
+    check_out = check_in + timedelta(days=2)
+
+    response = client.post(
+        "/bookings",
+        json={
+            "room_id": room_id,
+            "check_in": check_in.isoformat(),
+            "check_out": check_out.isoformat(),
+        },
+        headers=user_headers,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "You cannot book your own room"
+
+
+def test_cannot_book_room_when_not_available(client: TestClient):
+    admin_headers = auth_headers(client)
+
+    room_response = client.post(
+        "/rooms",
+        json={
+            "title": "Unavailable room",
+            "description": "Already occupied",
+            "price_per_night": 99,
+            "is_available": False,
+        },
+        headers=admin_headers,
+    )
+    assert room_response.status_code == 200
+    room_id = room_response.json()["id"]
+
+    payload = unique_user_payload()
+    register_response = client.post("/auth/register", json=payload)
+    assert register_response.status_code == 201
+    guest_headers = auth_headers(client, payload["username"], payload["password"])
+
+    check_in = date.today() + timedelta(days=7)
+    check_out = check_in + timedelta(days=2)
+
+    response = client.post(
+        "/bookings",
+        json={
+            "room_id": room_id,
+            "check_in": check_in.isoformat(),
+            "check_out": check_out.isoformat(),
+        },
+        headers=guest_headers,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Room is not available"

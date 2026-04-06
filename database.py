@@ -1,61 +1,73 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import declarative_base, sessionmaker
 
-# URL de la DB, usando driver async para SQLite
-DATABASE_URL = "sqlite+aiosqlite:///students.db"
+# SQLite database for the mini-booking project.
+DATABASE_URL = "sqlite+aiosqlite:///booking.db"
 
-# Crea el engine asíncrono (SQLAlchemy 1.4+)
 engine = create_async_engine(DATABASE_URL, echo=False, future=True)
 
-# Factory de sesiones asíncronas
 AsyncSessionLocal = sessionmaker(
     bind=engine,
-    expire_on_commit=False,  # evita expire de objetos al commit
+    expire_on_commit=False,
     class_=AsyncSession,
 )
 
-# Base declarativa para modelos ORM
 Base = declarative_base()
 
-# Inicializa la base de datos y datos semilla
+
 async def init_db():
-    from models import Student, User
-    from passlib.context import CryptContext
+    from pwdlib import PasswordHash
+    from sqlalchemy import select
 
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    from models import Room, User
 
-    # Crea tablas basadas en los modelos (si no existen)
+    password_hash = PasswordHash.recommended()
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Inserta datos iniciales si no existen
     async with AsyncSessionLocal() as session:
-        from sqlalchemy import select
-
-        # 1. Crear un usuario administrador si no existe
-        result = await session.execute(select(User).where(User.username == "admin"))
-        admin = result.scalar_one_or_none()
+        admin = (
+            await session.execute(select(User).where(User.username == "admin"))
+        ).scalar_one_or_none()
 
         if not admin:
             admin = User(
-                id=1,
                 username="admin",
                 email="admin@example.com",
-                hashed_password=pwd_context.hash("admin123"),
+                hashed_password=password_hash.hash("admin123"),
                 is_active=True,
                 is_superuser=True,
-                is_verified=True
+                is_verified=True,
             )
             session.add(admin)
+            await session.flush()
 
-        # 2. Crear estudiantes de ejemplo si no existen
-        stmt = select(Student).where(Student.id.in_([1, 2]))
-        existing = (await session.execute(stmt)).scalars().all()
-        existing_ids = {s.id for s in existing}
+        stmt = select(Room).where(Room.id.in_([1, 2]))
+        existing_rooms = (await session.execute(stmt)).scalars().all()
+        existing_ids = {room.id for room in existing_rooms}
 
         if 1 not in existing_ids:
-            session.add(Student(id=1, name="Alice", age=20, year="year 12", created_by_id=1))
+            session.add(
+                Room(
+                    id=1,
+                    title="Suite with Sea View",
+                    description="Bright suite with balcony and ocean view.",
+                    price_per_night=180,
+                    is_available=True,
+                    owner_id=admin.id,
+                )
+            )
         if 2 not in existing_ids:
-            session.add(Student(id=2, name="Bob", age=22, year="year 15", created_by_id=1))
+            session.add(
+                Room(
+                    id=2,
+                    title="City Studio",
+                    description="Compact studio in the city center.",
+                    price_per_night=95,
+                    is_available=True,
+                    owner_id=admin.id,
+                )
+            )
 
         await session.commit()

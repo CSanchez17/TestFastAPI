@@ -1,3 +1,5 @@
+from datetime import date
+
 from pydantic import BaseModel, Field, ConfigDict
 from fastapi_users import schemas as fastapi_users_schemas
 
@@ -13,33 +15,45 @@ class UserCreate(fastapi_users_schemas.BaseUserCreate):
 class UserUpdate(fastapi_users_schemas.BaseUserUpdate):
     username: str | None = None
 
-# 1. Esquema Base: Campos que comparten tanto la creación como la lectura
-class StudentBase(BaseModel):
-    name: str
-    age: int
-    year: str
 
-# 2. Esquema para CREAR: Se usa en el POST (Request Body)
-# No pedimos student_id porque la DB lo genera solo
-class StudentCreate(StudentBase):
-    pass 
+class RoomBase(BaseModel):
+    title: str
+    description: str
+    price_per_night: float = Field(..., gt=0)
+    is_available: bool = True
 
-# 3. Esquema para LEER: Se usa en el GET (Response Body)
-# Hereda de StudentBase y agrega el ID que ya existe en la DB
-class StudentRead(StudentBase):
-    # Usamos alias para mapear 'id' (DB) a 'student_id' (API)
-    student_id: int = Field(alias="id")
-    creator: UserRead
+
+class RoomCreate(RoomBase):
+    pass
+
+
+class RoomUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    price_per_night: float | None = Field(default=None, gt=0)
+    is_available: bool | None = None
+
+
+class RoomRead(RoomBase):
+    room_id: int = Field(alias="id")
+    owner: UserRead
 
     model_config = ConfigDict(
-        from_attributes=True,  # Antes: orm_mode
+        from_attributes=True,
     )
 
 
-class UserBase(BaseModel):
-    username: str
-    email: str
+class BookingCreate(BaseModel):
+    room_id: int = Field(..., gt=0)
+    check_in: date
+    check_out: date
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str
+
+class BookingRead(BaseModel):
+    booking_id: int = Field(alias="id")
+    room_id: int
+    guest_id: int
+    check_in: date
+    check_out: date
+
+    model_config = ConfigDict(from_attributes=True)
