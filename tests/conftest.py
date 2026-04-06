@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from ..app import fastapi_app
+from app import fastapi_app
 
 
 @pytest.fixture
