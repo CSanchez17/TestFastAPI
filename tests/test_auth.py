@@ -42,3 +42,23 @@ def test_get_all_users_with_auth(client: TestClient):
     users = response.json()
     assert isinstance(users, list)
     assert any(user["username"] == "admin" for user in users)
+
+
+def test_login_wrong_password(client: TestClient):
+    response = client.post(
+        "/auth/jwt/login",
+        data={"username": "admin", "password": "wrongpassword"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "LOGIN_BAD_CREDENTIALS"
+
+
+def test_login_nonexistent_user(client: TestClient):
+    response = client.post(
+        "/auth/jwt/login",
+        data={"username": "nobody@example.com", "password": "whatever"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "LOGIN_BAD_CREDENTIALS"

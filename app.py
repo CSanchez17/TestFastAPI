@@ -1,5 +1,4 @@
 from fastapi import FastAPI, HTTPException, Path, status, Depends
-from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from contextlib import asynccontextmanager
 from sqlalchemy.orm import selectinload
@@ -8,7 +7,6 @@ from database import AsyncSessionLocal, init_db
 from models import Student, User
 from schemas import StudentRead, StudentCreate, UserRead, UserCreate, UserUpdate
 from users import fastapi_users, current_active_user, auth_backend
-from auth import verify_password, create_access_token
 
 # --------------------------------------------------
 # FastAPI lifecycle: inicialización de recursos
@@ -147,19 +145,3 @@ async def delete_student(
         
         # Al usar 204 No Content, no devolvemos cuerpo (return None)
         return None
-    
-
-# Endpoint para obtener el Token (Login)
-@fastapi_app.post("/token")
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    """Custom token endpoint for username/password login."""
-    async with AsyncSessionLocal() as session:
-        # get_user_by_username manual:
-        result = await session.execute(select(User).where(User.username == form_data.username))
-        user = result.scalar_one_or_none()
-        
-        if not user or not verify_password(form_data.password, user.hashed_password):
-            raise HTTPException(status_code=401, detail="Invalid username or password")
-        
-        access_token = create_access_token(data={"sub": user.username})
-        return {"access_token": access_token, "token_type": "bearer"}
