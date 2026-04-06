@@ -7,9 +7,6 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: TestFastAPI
 
     steps:
       - name: Checkout
@@ -23,7 +20,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r ../requirements.txt
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          elif [ -f ../requirements.txt ]; then
+            pip install -r ../requirements.txt
+          else
+            echo "requirements.txt not found"
+            exit 1
+          fi
 
       - name: Run tests
         run: pytest
