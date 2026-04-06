@@ -155,4 +155,67 @@ Cuando necesites agregar "Profesores", "Cursos" o "Calificaciones", simplemente 
 
 ---
 
-¡Listo! Con esto tienes una guía detallada para entender y mantener la arquitectura moderna del proyecto.
+## Migrations
+Cuando modificas tus modelos (`models.py`) y necesitas que la base de datos se actualice sin romperse, sigue estos pasos:
+
+---
+
+### 1. Preparación del Modelo (`models.py`)
+Antes de ejecutar cualquier comando, asegúrate de que el código sea "amigable" con la base de datos:
+
+*   **Regla de Oro:** Si añades una columna `NOT NULL` (obligatoria), debe tener un `server_default` como **string**.
+*   **Ejemplo:** `server_default="1"` (si es un ID) o `server_default="pendiende"` (si es un texto).
+
+---
+
+### 2. Generación de la Migración
+Este paso crea el "plano" de los cambios. Alembic compara tu código con la base de datos actual.
+
+**Comando:**
+```bash
+alembic revision --autogenerate -m "descripción_del_cambio"
+```
+*   **¿Qué hace?** Crea un archivo `.py` en la carpeta `alembic/versions/`.
+*   **Consejo Pro:** Abre ese archivo y revisa las funciones `upgrade()` y `downgrade()`. Es buena práctica verificar que Alembic haya detectado los cambios correctamente antes de aplicarlos.
+
+---
+
+### 3. Aplicación de la Migración
+Este paso ejecuta el SQL real en tu archivo `.db`.
+
+**Comando:**
+```bash
+alembic upgrade head
+```
+*   **`head`**: Significa "llévame a la versión más reciente disponible".
+*   **Resultado esperado:** Deberías ver un mensaje como `INFO [alembic.runtime.migration] Running upgrade -> [ID], descripción`.
+
+
+---
+
+### 4. Sincronización de Datos Iniciales (Seeding)
+Una vez que la estructura (el esqueleto) está lista, necesitas que los datos (el contenido) tengan sentido.
+
+**Acción:** Ejecuta tu aplicación FastAPI.
+*   Tu función `init_db()` (que definimos antes) entrará en acción.
+*   Verificará si el usuario Admin (ID 1) existe. Si no, lo crea.
+*   Esto garantiza que el `server_default="1"` que pusimos en la migración tenga un usuario real al cual apuntar.
+
+---
+
+### 🚨 ¿Qué hacer si algo sale mal? (Plan de Rescate)
+
+Si el `upgrade head` falla y te da errores de "columna duplicada" o "inconsistencia", usa el **Reset de Emergencia**:
+
+1.  **Borra el archivo `.db`** (Solo en desarrollo).
+2.  **Borra los archivos** dentro de `alembic/versions/` (limpia el historial).
+3.  **Genera la migración inicial de nuevo:**
+    ```bash
+    alembic revision --autogenerate -m "initial_schema"
+    ```
+4.  **Aplica:**
+    ```bash
+    alembic upgrade head
+    ```
+
+---
