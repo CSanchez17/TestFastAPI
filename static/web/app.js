@@ -10,6 +10,7 @@ const authApi = window.bookingAuth || {
 
 let selectedRoomId = null;
 let selectedRoomTitle = "";
+let latestRooms = [];
 
 function getToken() {
   return localStorage.getItem("booking_token") || "";
@@ -100,6 +101,7 @@ async function loadRooms() {
   roomsGrid.innerHTML = "Loading rooms...";
   try {
     const rooms = await fetchJson("/rooms");
+    latestRooms = rooms;
     if (!rooms.length) {
       roomsGrid.innerHTML = "No available rooms found.";
       return;
@@ -132,6 +134,111 @@ async function loadRooms() {
   } catch (error) {
     roomsGrid.innerHTML = "Could not load rooms.";
   }
+}
+
+function appendChatBubble(text, role = "assistant") {
+  const chat = document.getElementById("concierge-chat");
+  if (!chat) {
+    return null;
+  }
+
+  const bubble = document.createElement("div");
+  bubble.className = `chat-bubble ${role}`;
+  bubble.textContent = text;
+  chat.appendChild(bubble);
+  chat.scrollTop = chat.scrollHeight;
+  return bubble;
+}
+
+function renderConciergeRecommendations(payload) {
+  const chat = document.getElementById("concierge-chat");
+  if (!chat) {
+    return;
+  }
+
+  if (!payload.recommendations || payload.recommendations.length === 0) {
+    appendChatBubble("I could not find a perfect match right now. Try relaxing constraints like budget or location.", "assistant");
+    return;
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "chat-recommendations";
+
+  payload.recommendations.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = "chat-rec-card";
+    card.innerHTML = `
+      <h3>${item.title}</h3>
+      <p>${item.city}, ${item.country} | ${item.price_per_night} EUR/night</p>
+      <p class="chat-reason">${item.reason}</p>
+    `;
+
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "quick-book";
+    action.textContent = "Book this recommendation";
+    action.addEventListener("click", () => {
+      const room = latestRooms.find((r) => (r.id ?? r.room_id) === item.room_id);
+      if (!room) {
+        appendChatBubble("This room is no longer available. Refreshing room list...", "assistant");
+        loadRooms();
+        return;
+      }
+      setSelectedRoom(room, null);
+    });
+
+    card.appendChild(action);
+    wrapper.appendChild(card);
+  });
+
+  chat.appendChild(wrapper);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function wireConciergeChat() {
+  const form = document.getElementById("concierge-form");
+  const input = document.getElementById("concierge-input");
+  const send = document.getElementById("concierge-send");
+
+  if (!form || !input || !send) {
+    return;
+  }
+
+  appendChatBubble("Hi, I am your concierge. Tell me your ideal room and budget.", "assistant");
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const query = input.value.trim();
+    if (!query) {
+      return;
+    }
+
+    appendChatBubble(query, "user");
+    input.value = "";
+    send.disabled = true;
+    const thinking = appendChatBubble("Thinking...", "assistant");
+
+    try {
+      const payload = await fetchJson("/ai/concierge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, max_results: 3 }),
+      });
+
+      if (thinking) {
+        thinking.remove();
+      }
+      appendChatBubble(payload.assistant_message || "I found these options:", "assistant");
+      renderConciergeRecommendations(payload);
+    } catch (error) {
+      if (thinking) {
+        thinking.remove();
+      }
+      appendChatBubble(`I could not process that request: ${error.message}`, "assistant");
+    } finally {
+      send.disabled = false;
+    }
+  });
 }
 
 function wireBooking() {
@@ -189,6 +296,7 @@ function wireModalControls() {
 document.addEventListener("DOMContentLoaded", async () => {
   wireBooking();
   wireModalControls();
+  wireConciergeChat();
 
   document.getElementById("refresh-rooms").addEventListener("click", loadRooms);
 

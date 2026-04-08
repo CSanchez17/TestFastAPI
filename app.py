@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from ai import recommend_rooms
 from database import AsyncSessionLocal, init_db
 from models import Booking, Location, Room, User
 from schemas import (
@@ -13,6 +14,8 @@ from schemas import (
     DashboardBookingRead,
     BookingRead,
     BookingStatusUpdate,
+    ConciergeRequest,
+    ConciergeResponse,
     GuestDashboardRead,
     HostDashboardRead,
     RoomCreate,
@@ -269,6 +272,18 @@ async def create_booking(
         await session.commit()
         await session.refresh(booking)
         return BookingRead.model_validate(booking)
+
+
+@fastapi_app.post("/ai/concierge", response_model=ConciergeResponse, tags=["ai"])
+async def ai_concierge(payload: ConciergeRequest):
+    """AI concierge: natural-language recommendations based on available rooms and location data."""
+    async with AsyncSessionLocal() as session:
+        result = await recommend_rooms(
+            session=session,
+            query=payload.query,
+            max_results=payload.max_results,
+        )
+        return ConciergeResponse.model_validate(result)
 
 
 @fastapi_app.get("/hosts/rooms/me", response_model=list[RoomRead], tags=["rooms"])

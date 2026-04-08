@@ -117,3 +117,24 @@ class GuestDashboardRead(BaseModel):
     active_bookings: int
     total_spent_confirmed: float
     bookings: list[DashboardBookingRead]
+
+
+class ConciergeRequest(BaseModel):
+    query: str = Field(..., min_length=5)
+    max_results: int = Field(default=3, ge=1, le=10)
+
+
+class ConciergeRecommendation(BaseModel):
+    room_id: int
+    title: str
+    price_per_night: float
+    city: str
+    country: str
+    reason: str
+
+
+class ConciergeResponse(BaseModel):
+    query: str
+    extracted_preferences: dict[str, str | float | bool | None]
+    assistant_message: str
+    recommendations: list[ConciergeRecommendation]

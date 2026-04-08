@@ -7,8 +7,31 @@
     <header class="hero">
       <p class="eyebrow">Mini Booking</p>
       <h1>Find a room and book in seconds</h1>
-      <p class="subtitle">Browse available rooms and book from the pop-up form.</p>
+      <p class="subtitle">Explore rooms, ask for tailored suggestions, and book in one flow.</p>
     </header>
+
+    <section class="panel concierge-panel">
+      <div class="panel-heading">
+        <h2>TRAVEL MATCH STUDIO</h2>
+      </div>
+      <p class="concierge-hint">
+        Write where you want to travel and what you need in a room.
+      </p>
+      <p class="concierge-example">
+        Example: "I want to go to Lisbon. I need a quiet room with good Wi-Fi, a desk, and max 110 EUR per night."
+      </p>
+      <div id="concierge-chat" class="chat-shell" aria-live="polite"></div>
+      <form id="concierge-form" class="chat-form">
+        <input
+          id="concierge-input"
+          type="text"
+          maxlength="400"
+          placeholder="Destination + room preferences (e.g. Porto, balcony, quiet, under 95 EUR)"
+          required
+        />
+        <button id="concierge-send" type="submit">Find My Match</button>
+      </form>
+    </section>
 
     <section class="panel">
       <div class="panel-heading">

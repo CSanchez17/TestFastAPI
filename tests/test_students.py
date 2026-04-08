@@ -36,6 +36,8 @@ def test_booking_frontend_page_loads(client: TestClient):
     assert response.status_code == 200
     html = response.text
     assert "Find a room and book in seconds" in html
+    assert "AI Concierge" in html
+    assert "concierge-chat" in html
     assert "booking-modal" in html
     assert "/web-static/web/app.js" in html
 
@@ -45,6 +47,7 @@ def test_booking_frontend_javascript_asset_is_served(client: TestClient):
 
     assert response.status_code == 200
     assert "openBookingModal" in response.text
+    assert "/ai/concierge" in response.text
 
 
 def test_my_bookings_page_loads(client: TestClient):
@@ -215,6 +218,85 @@ def test_guest_can_book_available_room(client: TestClient):
     assert booking["guest_id"] >= 1
     assert booking["status"] == "confirmed"
     assert booking["booked_price_per_night"] > 0
+
+
+def test_end_user_can_complete_booking_flow(client: TestClient):
+    host_headers = auth_headers(client, "master", "master")
+    activate_host(client, host_headers)
+
+    room_response = client.post(
+        "/rooms",
+        json={
+            "title": "Quiet Focus Studio",
+            "location": location_payload("Cowork Alley 12", city="Madrid", country="Spain", postal_code="28001"),
+            "description": "Quiet room with ergonomic desk near city center.",
+            "price_per_night": 79,
+            "is_available": True,
+        },
+        headers=host_headers,
+    )
+    assert room_response.status_code == 200
+    room_id = room_response.json()["id"]
+
+    guest_payload = unique_user_payload()
+    assert client.post("/auth/register", json=guest_payload).status_code == 201
+    guest_headers = auth_headers(client, guest_payload["username"], guest_payload["password"])
+
+    rooms_response = client.get("/rooms")
+    assert rooms_response.status_code == 200
+    available_ids = {room["id"] for room in rooms_response.json()}
+    assert room_id in available_ids
+
+    start = date.today()
+    end = start + timedelta(days=2)
+    booking_response = client.post(
+        "/bookings",
+        json={"room_id": room_id, "start_date": start.isoformat(), "end_date": end.isoformat()},
+        headers=guest_headers,
+    )
+    assert booking_response.status_code == 200
+    booking = booking_response.json()
+    assert booking["room_id"] == room_id
+
+    my_bookings = client.get("/bookings/me", headers=guest_headers)
+    assert my_bookings.status_code == 200
+    assert any(item["id"] == booking["id"] for item in my_bookings.json())
+
+
+def test_ai_concierge_recommends_room_with_reason(client: TestClient):
+    host_headers = auth_headers(client, "master", "master")
+    activate_host(client, host_headers)
+
+    room_response = client.post(
+        "/rooms",
+        json={
+            "title": "Work and Quiet Suite",
+            "location": location_payload("Center Desk Road 3", city="Berlin", country="Germany", postal_code="10115"),
+            "description": "Quiet suite with ergonomic desk and double-glazed windows near center.",
+            "price_per_night": 80,
+            "is_available": True,
+        },
+        headers=host_headers,
+    )
+    assert room_response.status_code == 200
+    room_id = room_response.json()["id"]
+
+    concierge_response = client.post(
+        "/ai/concierge",
+        json={
+            "query": "Busco una habitacion tranquila para trabajar cerca del centro que no pase de 80 euros en Berlin",
+            "max_results": 3,
+        },
+    )
+
+    assert concierge_response.status_code == 200
+    payload = concierge_response.json()
+    assert payload["assistant_message"]
+    assert "llm_provider_used" not in payload
+    assert payload["recommendations"]
+    assert any(item["price_per_night"] <= 80 for item in payload["recommendations"])
+    assert any(item["city"] == "Berlin" for item in payload["recommendations"])
+    assert any("budget" in item["reason"] or "quiet" in item["reason"] for item in payload["recommendations"])
 
 
 def test_guest_cannot_book_own_room(client: TestClient):
