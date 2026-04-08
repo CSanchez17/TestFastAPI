@@ -36,7 +36,7 @@ def test_booking_frontend_page_loads(client: TestClient):
     assert response.status_code == 200
     html = response.text
     assert "Find a room and book in seconds" in html
-    assert "AI Concierge" in html
+    assert "TRAVEL MATCH STUDIO" in html
     assert "concierge-chat" in html
     assert "booking-modal" in html
     assert "/web-static/web/app.js" in html
