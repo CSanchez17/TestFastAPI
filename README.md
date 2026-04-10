@@ -32,12 +32,42 @@ cd c:\Users\Sanch\Desktop\Projekte\Test\TestFastAPI
 c:/Users/Sanch/Desktop/Projekte/Test/Gen_AI/venv/Scripts/python.exe -m uvicorn myapi:app --reload
 ```
 
-Accede a:
-- http://127.0.0.1:8000/students/1
-- http://127.0.0.1:8000/students/2
-- http://127.0.0.1:8000/students/3 (404)
+## Configuración de IA
 
-## Flujo y ciclo de vida
+Este proyecto incluye funcionalidades de IA usando modelos locales con Ollama o servicios en la nube.
+
+### Configuración
+
+1. Copia el archivo `.env.example` a `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edita `.env` según tus necesidades. Para usar Ollama con deepseek-r1:8b:
+   ```
+   CONCIERGE_LLM_PROVIDER=local
+   LOCAL_LLM_MODEL=deepseek-r1:8b
+   ```
+
+3. Asegúrate de que Ollama esté corriendo:
+   ```bash
+   ollama serve
+   ```
+
+4. Instala el modelo si no lo tienes:
+   ```bash
+   ollama pull deepseek-r1:8b
+   ```
+
+### Variables de Entorno
+
+- `CONCIERGE_LLM_PROVIDER`: `none`, `local`, `cloud`, `auto`
+- `LOCAL_LLM_MODEL`: Nombre del modelo en Ollama (ej: `deepseek-r1:8b`)
+- `LOCAL_LLM_BASE_URL`: URL de Ollama (default: `http://localhost:11434`)
+- `CLOUD_LLM_API_KEY`: API key para servicios en la nube
+- `CLOUD_LLM_MODEL`: Modelo en la nube (ej: `gpt-4o-mini`)
+
+Para cambiar el modelo fácilmente, solo modifica la variable `LOCAL_LLM_MODEL` en tu archivo `.env`.
 
 1. `myapi.py` usa `lifespan` con `init_db()` de `database.py` para inicializar DB en startup.
 2. `database.py`:

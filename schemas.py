@@ -122,11 +122,14 @@ class GuestDashboardRead(BaseModel):
 class ConciergeRequest(BaseModel):
     query: str = Field(..., min_length=5)
     max_results: int = Field(default=3, ge=1, le=10)
+    language: str = Field(default="en", min_length=2, max_length=5, description="Browser language (ISO 639-1)")
+    premium_i18n: bool = Field(default=False, description="Enable translated responses in query language")
 
 
 class ConciergeRecommendation(BaseModel):
     room_id: int
     title: str
+    description: str
     price_per_night: float
     city: str
     country: str
@@ -138,3 +141,15 @@ class ConciergeResponse(BaseModel):
     extracted_preferences: dict[str, str | float | bool | None]
     assistant_message: str
     recommendations: list[ConciergeRecommendation]
+    suggested_queries: list[str] = []
+    detected_language: str = "en"
+
+
+class UserSettingsRead(BaseModel):
+    premium_i18n: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserSettingsUpdate(BaseModel):
+    premium_i18n: bool | None = None

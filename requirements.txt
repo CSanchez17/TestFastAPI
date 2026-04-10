@@ -27,3 +27,4 @@ asgi-lifespan==2.1.0
 anyio==4.13.0
 sqladmin==0.20.1
 chromadb==0.6.3
+python-dotenv==1.0.0

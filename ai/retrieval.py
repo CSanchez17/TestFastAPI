@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+import unicodedata
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -14,9 +15,37 @@ try:
 except Exception:  # pragma: no cover - optional runtime dependency in tests/CI
     chromadb = None
 
+try:
+    import pycountry
+except Exception:  # pragma: no cover - optional
+    pycountry = None
+
+# Fallback alias map for common country name variants when `pycountry` is not available.
+# Keys are normalized alias forms found in queries; values are target normalized country names
+# that should match normalized entries from `known_countries`.
+COUNTRY_ALIASES: dict[str, str] = {
+    "spain": "espana",
+    "espana": "espana",
+    "es": "espana",
+    "italy": "italia",
+    "italia": "italia",
+    "it": "italia",
+    "germany": "germany",
+    "deutschland": "germany",
+    "de": "germany",
+}
+
 QUIET_KEYWORDS = ["quiet", "silence", "silent", "tranquilo", "calm"]
 WORK_KEYWORDS = ["work", "desk", "workspace", "office", "trabajar", "escritorio"]
 CENTER_KEYWORDS = ["center", "central", "centro"]
+CHEAP_KEYWORDS = [
+    "cheap", "cheapest", "budget",
+    "lowest price", "lowest cost", "lowest",
+    "most affordable", "affordable", "inexpensive",
+    "economical", "economy",
+    "barato", "mas barato", "más barato", "precio mas bajo",
+    "günstig", "günstigste",
+]
 
 
 async def collect_rooms(session) -> list[Room]:
@@ -39,7 +68,17 @@ async def collect_known_locations(session) -> tuple[list[str], list[str]]:
 
 
 def normalize(text: str) -> str:
-    return text.strip().lower()
+    """Normalize text for comparison.
+
+    - strip surrounding whitespace
+    - lowercase
+    - remove diacritics (accents, ñ -> n) to make comparisons accent-insensitive
+    """
+    if text is None:
+        return ""
+    s = text.strip().lower()
+    s = unicodedata.normalize("NFKD", s)
+    return "".join(ch for ch in s if not unicodedata.combining(ch))
 
 
 def extract_max_price(prompt: str) -> float | None:
@@ -63,11 +102,58 @@ def extract_preferences(prompt: str, known_cities: list[str], known_countries: l
     city = next((c for c in known_cities if normalize(c) in lowered), None)
     country = next((c for c in known_countries if normalize(c) in lowered), None)
 
+    # If country not found directly, try mapping across languages using pycountry.
+    if country is None and pycountry is not None and known_countries:
+        for known in known_countries:
+            try:
+                # Attempt to resolve the known country name to a pycountry object
+                py_obj = None
+                try:
+                    matches = pycountry.countries.search_fuzzy(known)
+                    py_obj = matches[0] if matches else None
+                except Exception:
+                    try:
+                        py_obj = pycountry.countries.get(name=known)
+                    except Exception:
+                        py_obj = None
+
+                if not py_obj:
+                    continue
+
+                candidate_names = {normalize(py_obj.name)}
+                if hasattr(py_obj, "official_name"):
+                    candidate_names.add(normalize(py_obj.official_name))
+                # include alpha codes
+                if hasattr(py_obj, "alpha_2") and py_obj.alpha_2:
+                    candidate_names.add(py_obj.alpha_2.lower())
+                if hasattr(py_obj, "alpha_3") and py_obj.alpha_3:
+                    candidate_names.add(py_obj.alpha_3.lower())
+
+                # Also include the normalized known name itself
+                candidate_names.add(normalize(known))
+
+                if any(name in lowered for name in candidate_names):
+                    country = known
+                    break
+            except Exception:
+                # On any error, continue trying other known countries
+                continue
+
+    # If still not found and we don't have pycountry, try alias map lookup.
+    if country is None and known_countries:
+        normalized_known_map = {normalize(k): k for k in known_countries}
+        for alias, target_norm in COUNTRY_ALIASES.items():
+            if alias in lowered:
+                if target_norm in normalized_known_map:
+                    country = normalized_known_map[target_norm]
+                    break
+
     return {
         "max_price": extract_max_price(prompt),
         "needs_quiet": any(keyword in lowered for keyword in QUIET_KEYWORDS),
         "needs_work": any(keyword in lowered for keyword in WORK_KEYWORDS),
         "near_center": any(keyword in lowered for keyword in CENTER_KEYWORDS),
+        "prefer_cheapest": any(keyword in lowered for keyword in CHEAP_KEYWORDS),
         "city": city,
         "country": country,
     }
@@ -80,6 +166,7 @@ def format_preferences(preferences: dict[str, Any]) -> dict[str, Any]:
         "needs_quiet": preferences.get("needs_quiet", False),
         "needs_work": preferences.get("needs_work", False),
         "near_center": preferences.get("near_center", False),
+        "prefer_cheapest": preferences.get("prefer_cheapest", False),
         "city": preferences.get("city"),
         "country": preferences.get("country"),
     }
@@ -97,8 +184,9 @@ def build_reason(metadata: dict[str, Any], preferences: dict[str, Any]) -> str:
         reasons.append("description suggests a quiet environment")
     if preferences.get("near_center") and metadata.get("near_center"):
         reasons.append("it looks close to the city center")
-    if metadata.get("city") and metadata.get("country"):
-        reasons.append(f"location: {metadata['city']}, {metadata['country']}")
+
+    if preferences.get("prefer_cheapest"):
+        reasons.append("chosen for being among the cheapest options")
 
     return "; ".join(reasons) if reasons else "good semantic match for your request"
 
@@ -144,6 +232,7 @@ def build_room_metadata(room: Room) -> dict[str, Any]:
     return {
         "room_id": int(room.id),
         "title": room.title,
+        "description": room.description or "",
         "price_per_night": float(room.price_per_night),
         "city": location.city if location else "",
         "country": location.country if location else "",
@@ -177,6 +266,7 @@ def render_recommendations(items: list[dict[str, Any]], preferences: dict[str, A
         {
             "room_id": int(item["room_id"]),
             "title": item.get("title", ""),
+            "description": item.get("description", ""),
             "price_per_night": float(item.get("price_per_night", 0)),
             "city": item.get("city", ""),
             "country": item.get("country", ""),
@@ -194,7 +284,13 @@ def rank_rooms_locally(rooms: list[Room], preferences: dict[str, Any], max_resul
         metadata["score"] = score_metadata(metadata, preferences)
         ranked.append(metadata)
 
-    ranked.sort(key=lambda item: item.get("score", 0), reverse=True)
+    # If the user requested the cheapest option, prefer lower price first,
+    # falling back to score for ties.
+    if preferences.get("prefer_cheapest"):
+        ranked.sort(key=lambda item: (item.get("price_per_night", float("inf")), -item.get("score", 0)))
+    else:
+        ranked.sort(key=lambda item: item.get("score", 0), reverse=True)
+
     return render_recommendations(ranked[:max_results], preferences)
 
 
@@ -237,7 +333,11 @@ def rank_rooms_with_chroma(rooms: list[Room], query: str, preferences: dict[str,
         metadata["score"] = score_metadata(metadata, preferences)
         unique_by_id[room_id] = metadata
 
-    ranked = sorted(unique_by_id.values(), key=lambda item: item.get("score", 0), reverse=True)
+    # If user prefers cheapest, sort by price asc then score desc, otherwise by score desc
+    if preferences.get("prefer_cheapest"):
+        ranked = sorted(unique_by_id.values(), key=lambda item: (item.get("price_per_night", float("inf")), -item.get("score", 0)))
+    else:
+        ranked = sorted(unique_by_id.values(), key=lambda item: item.get("score", 0), reverse=True)
     if not ranked:
         return rank_rooms_locally(rooms, preferences, max_results)
 

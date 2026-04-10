@@ -6,19 +6,19 @@
   <main class="page">
     <header class="hero">
       <p class="eyebrow">Mini Booking</p>
-      <h1>Find a room and book in seconds</h1>
-      <p class="subtitle">Explore rooms, ask for tailored suggestions, and book in one flow.</p>
+      <h1 data-i18n="heroTitle">Find a room and book in seconds</h1>
+      <p class="subtitle" data-i18n="heroSubtitle">Explore rooms, ask for tailored suggestions, and book in one flow.</p>
     </header>
 
     <section class="panel concierge-panel">
       <div class="panel-heading">
-        <h2>TRAVEL MATCH STUDIO</h2>
+        <h2 data-i18n="studioTitle">&#x2728; Travel Match Studio</h2>
       </div>
-      <p class="concierge-hint">
-        Write where you want to travel and what you need in a room.
+      <p class="concierge-hint" data-i18n="hint">
+        Describe where you'd like to travel and what matters most in a room.
       </p>
-      <p class="concierge-example">
-        Example: "I want to go to Lisbon. I need a quiet room with good Wi-Fi, a desk, and max 110 EUR per night."
+      <p class="concierge-example" data-i18n="example">
+        Example: &ldquo;I want to go to Lisbon. I need a quiet room with good Wi-Fi, a desk, and max 110&nbsp;EUR per night.&rdquo;
       </p>
       <div id="concierge-chat" class="chat-shell" aria-live="polite"></div>
       <form id="concierge-form" class="chat-form">
@@ -26,17 +26,46 @@
           id="concierge-input"
           type="text"
           maxlength="400"
+          data-i18n="placeholder"
           placeholder="Destination + room preferences (e.g. Porto, balcony, quiet, under 95 EUR)"
           required
         />
-        <button id="concierge-send" type="submit">Find My Match</button>
+        <button id="concierge-send" type="submit" data-i18n="findMatch">Find My Match</button>
       </form>
     </section>
 
     <section class="panel">
       <div class="panel-heading">
-        <h2>Available Rooms</h2>
-        <button id="refresh-rooms" type="button">Refresh rooms</button>
+        <h2 data-i18n="availRooms">Available Rooms</h2>
+        <button id="refresh-rooms" type="button" data-i18n="refresh">Refresh rooms</button>
+      </div>
+      <div class="rooms-filter-row">
+        <label>
+          <span data-i18n="country">Country</span>
+          <select id="room-country-filter">
+            <option value="" data-i18n="allCountries">All countries</option>
+          </select>
+        </label>
+        <label>
+          <span data-i18n="city">City</span>
+          <select id="room-city-filter">
+            <option value="" data-i18n="allCities">All cities</option>
+          </select>
+        </label>
+        <label>
+          <span data-i18n="minPrice">Min price</span>
+          <input id="room-min-price" type="number" min="0" step="1" placeholder="0" />
+        </label>
+        <label>
+          <span data-i18n="maxPrice">Max price</span>
+          <input id="room-max-price" type="number" min="0" step="1" placeholder="200" />
+        </label>
+        <label class="checkbox-label">
+          <input id="room-available-filter" type="checkbox" checked />
+          <span data-i18n="onlyAvail">Only available</span>
+        </label>
+        <button id="apply-room-filters" type="button" data-i18n="apply">Apply filters</button>
+        <button id="clear-room-filters" type="button" data-i18n="clear">Clear</button>
       </div>
       <div id="rooms-grid" class="rooms-grid"></div>
     </section>
@@ -46,25 +75,25 @@
     <div class="booking-popout-backdrop" id="booking-modal-close"></div>
     <section class="booking-popout-card" role="dialog" aria-modal="true" aria-labelledby="booking-title">
       <div class="booking-popout-header">
-        <h2 id="booking-title">Create Booking</h2>
+        <h2 id="booking-title" data-i18n="createBooking">Create Booking</h2>
         <button id="booking-close-button" class="ghost-button" type="button">Close</button>
       </div>
 
       <form id="booking-form" class="grid-form">
         <label>
-          Selected room
+          <span data-i18n="selRoom">Selected room</span>
           <input type="text" id="selected-room" readonly />
         </label>
         <input type="hidden" id="room-id" />
         <label>
-          Start date
+          <span data-i18n="startDate">Start date</span>
           <input type="date" id="start-date" required />
         </label>
         <label>
-          End date
+          <span data-i18n="endDate">End date</span>
           <input type="date" id="end-date" required />
         </label>
-        <button type="submit">Book room</button>
+        <button type="submit" data-i18n="bookRoom">Book room</button>
       </form>
       <p id="booking-status" class="status"></p>
     </section>

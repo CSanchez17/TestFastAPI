@@ -28,3 +28,13 @@ async def my_bookings_frontend(request: Request):
         name="web/my_bookings.html",
         context={"request": request},
     )
+
+
+@router.get("/settings", response_class=HTMLResponse, include_in_schema=False)
+async def settings_frontend(request: Request):
+    """Serve the user settings page."""
+    return templates.TemplateResponse(
+        request=request,
+        name="web/settings.html",
+        context={"request": request},
+    )

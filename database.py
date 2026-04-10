@@ -1,15 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy import inspect, text
-
-
-EXAMPLE_COUNTRY_CITY_OPTIONS = {
-    "Germany": ["Berlin", "Munich", "Hamburg"],
-    "Portugal": ["Lisbon", "Porto", "Coimbra"],
-    "Spain": ["Madrid", "Barcelona", "Valencia"],
-    "France": ["Paris", "Lyon", "Marseille"],
-    "Italy": ["Rome", "Milan", "Naples"],
-}
+from sqlalchemy import func, inspect, text
 
 # SQLite database for the mini-booking project.
 DATABASE_URL = "sqlite+aiosqlite:///booking.db"
@@ -206,7 +197,14 @@ async def init_db():
             await session.execute(select(Country.id))
         ).scalars().first()
         if existing_country_count is None:
-            for country_name, cities in EXAMPLE_COUNTRY_CITY_OPTIONS.items():
+            # Create initial countries and cities if database is empty
+            initial_countries_cities = {
+                "Portugal": ["Lisbon", "Porto", "Coimbra"],
+                "Spain": ["Madrid", "Barcelona", "Valencia"],
+                "Germany": ["Berlin", "Munich", "Hamburg"],
+                "Italy": ["Rome", "Milan", "Naples"],
+            }
+            for country_name, cities in initial_countries_cities.items():
                 for city_name in cities:
                     await get_or_create_city(country_name, city_name)
 
@@ -215,34 +213,30 @@ async def init_db():
         for location in existing_locations:
             await get_or_create_city(location.country, location.city)
 
-        valid_pairs = [
-            (country_name, city_name)
-            for country_name, cities in EXAMPLE_COUNTRY_CITY_OPTIONS.items()
-            for city_name in cities
-        ]
-
-        def has_valid_pair(country: str, city: str) -> bool:
-            return country in EXAMPLE_COUNTRY_CITY_OPTIONS and city in EXAMPLE_COUNTRY_CITY_OPTIONS[country]
-
+        # For rooms with invalid locations, assign them to existing cities
         available_rooms = (
             await session.execute(
                 select(Room).options(selectinload(Room.location)).where(Room.is_available.is_(True))
             )
         ).scalars().all()
 
-        for index, room in enumerate(available_rooms):
-            current_location = room.location
-            needs_fix = (
-                current_location is None
-                or not has_valid_pair(current_location.country, current_location.city)
-            )
-            if not needs_fix:
-                continue
+        # Get all existing valid country-city pairs from database
+        existing_cities = await session.execute(
+            select(City.name, Country.name)
+            .join(Country, City.country_id == Country.id)
+        )
+        valid_pairs = [(country, city) for city, country in existing_cities.all()]
 
-            country, city = valid_pairs[index % len(valid_pairs)]
-            await get_or_create_city(country, city)
+        if valid_pairs:  # Only process if we have valid pairs
+            for index, room in enumerate(available_rooms):
+                current_location = room.location
+                needs_fix = current_location is None
+                if not needs_fix:
+                    continue
 
-            if current_location is None:
+                country, city = valid_pairs[index % len(valid_pairs)]
+                await get_or_create_city(country, city)
+
                 location = seed_location(
                     address_line=f"Updated Address {room.id}",
                     city=city,
@@ -252,13 +246,6 @@ async def init_db():
                 session.add(location)
                 await session.flush()
                 room.location_id = location.id
-            else:
-                current_location.country = country
-                current_location.city = city
-                if not current_location.postal_code:
-                    current_location.postal_code = f"10{room.id:03d}"
-                if not current_location.address_line:
-                    current_location.address_line = f"Updated Address {room.id}"
 
         stmt = select(Room).where(Room.id.in_([1, 2]))
         existing_rooms = (await session.execute(stmt)).scalars().all()
@@ -297,4 +284,95 @@ async def init_db():
                 )
             )
 
-        await session.commit()
+        # Populate rooms for existing cities if needed
+        # Get existing cities from database
+        existing_cities_query = await session.execute(
+            select(City.name, Country.name)
+            .join(Country, City.country_id == Country.id)
+        )
+        existing_cities = existing_cities_query.all()
+
+        room_templates = [
+            {
+                "title": "Cozy Apartment in {city}",
+                "description": "A comfortable {size} apartment in the heart of {city}. Perfect for tourists and business travelers. Features modern amenities, WiFi, and a fully equipped kitchen.",
+                "price_per_night": 85.0,
+                "size": "1-bedroom"
+            },
+            {
+                "title": "Luxury Suite with City View",
+                "description": "Elegant {size} suite offering stunning views of {city}. Includes premium furnishings, balcony, and concierge service. Ideal for special occasions.",
+                "price_per_night": 150.0,
+                "size": "2-bedroom"
+            },
+            {
+                "title": "Budget-Friendly Studio",
+                "description": "Affordable studio apartment in {city}. Compact but comfortable, with all essential amenities. Great value for budget-conscious travelers.",
+                "price_per_night": 55.0,
+                "size": "studio"
+            },
+            {
+                "title": "Family-Friendly Townhouse",
+                "description": "Spacious {size} townhouse perfect for families. Located in a quiet neighborhood of {city}, with garden access and parking. Fully furnished and child-friendly.",
+                "price_per_night": 120.0,
+                "size": "3-bedroom"
+            },
+            {
+                "title": "Modern Loft Downtown",
+                "description": "Trendy loft apartment in downtown {city}. Industrial-chic design with high ceilings, exposed brick, and contemporary furnishings. Walking distance to attractions.",
+                "price_per_night": 95.0,
+                "size": "open-plan"
+            },
+        ]
+
+        # Check if we need to create more rooms (aim for at least 5 rooms per city)
+        total_existing_rooms = await session.execute(select(func.count(Room.id)))
+        total_rooms = total_existing_rooms.scalar()
+
+        target_rooms_per_city = 5
+        target_total_rooms = len(existing_cities) * target_rooms_per_city
+
+        if total_rooms < target_total_rooms:
+            for city_name, country_name in existing_cities:
+                # Count existing rooms for this city
+                city_rooms_count = await session.execute(
+                    select(func.count(Room.id))
+                    .join(Room.location)
+                    .where(Location.city == city_name, Location.country == country_name)
+                )
+                existing_count = city_rooms_count.scalar()
+
+                # Create missing rooms for this city
+                rooms_to_create = target_rooms_per_city - existing_count
+                if rooms_to_create > 0:
+                    # Get or create location for this city
+                    location_query = await session.execute(
+                        select(Location).where(Location.city == city_name, Location.country == country_name)
+                    )
+                    location = location_query.scalar_one_or_none()
+
+                    if location is None:
+                        location = Location(
+                            address_line=f"Centro Histórico, {city_name}",
+                            city=city_name,
+                            country=country_name,
+                            postal_code=f"{1000 + hash(city_name) % 9000:04d}"
+                        )
+                        session.add(location)
+                        await session.flush()
+
+                    # Create the missing rooms
+                    for i in range(rooms_to_create):
+                        template = room_templates[i % len(room_templates)]
+                        room = Room(
+                            title=template["title"].format(city=city_name),
+                            location_id=location.id,
+                            description=template["description"].format(city=city_name, size=template["size"]),
+                            price_per_night=template["price_per_night"],
+                            is_available=True,
+                            owner_id=admin.id
+                        )
+                        session.add(room)
+
+            await session.commit()
+            print("Sample rooms created successfully.")

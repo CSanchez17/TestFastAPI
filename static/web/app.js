@@ -11,7 +11,6 @@ const authApi = window.bookingAuth || {
 let selectedRoomId = null;
 let selectedRoomTitle = "";
 let latestRooms = [];
-
 function getToken() {
   return localStorage.getItem("booking_token") || "";
 }
@@ -81,8 +80,19 @@ async function fetchJson(url, options = {}) {
   const payload = isJson ? await response.json() : await response.text();
 
   if (!response.ok) {
-    const detail = typeof payload === "object" && payload && payload.detail ? payload.detail : payload;
-    throw new Error(String(detail || "Request failed"));
+    let errorMessage = "Request failed";
+    if (isJson && payload && payload.detail) {
+      if (Array.isArray(payload.detail)) {
+        errorMessage = payload.detail.map(err => err.msg || err.message || JSON.stringify(err)).join("; ");
+      } else if (typeof payload.detail === "string") {
+        errorMessage = payload.detail;
+      } else {
+        errorMessage = JSON.stringify(payload.detail);
+      }
+    } else if (typeof payload === "string") {
+      errorMessage = payload;
+    }
+    throw new Error(errorMessage);
   }
 
   return payload;
@@ -98,12 +108,36 @@ async function parseResponsePayload(response) {
 
 async function loadRooms() {
   const roomsGrid = document.getElementById("rooms-grid");
-  roomsGrid.innerHTML = "Loading rooms...";
+  roomsGrid.innerHTML = t("loading");
   try {
-    const rooms = await fetchJson("/rooms");
+    const citySelect = document.getElementById("room-city-filter");
+    const countrySelect = document.getElementById("room-country-filter");
+    const minPriceInput = document.getElementById("room-min-price");
+    const maxPriceInput = document.getElementById("room-max-price");
+    const availableInput = document.getElementById("room-available-filter");
+    const params = new URLSearchParams();
+
+    if (citySelect && citySelect.value) {
+      params.set("city", citySelect.value);
+    }
+    if (countrySelect && countrySelect.value) {
+      params.set("country", countrySelect.value);
+    }
+    if (minPriceInput && minPriceInput.value.trim()) {
+      params.set("min_price", minPriceInput.value.trim());
+    }
+    if (maxPriceInput && maxPriceInput.value.trim()) {
+      params.set("max_price", maxPriceInput.value.trim());
+    }
+    if (availableInput) {
+      params.set("available", availableInput.checked.toString());
+    }
+
+    const url = `/rooms${params.toString() ? `?${params.toString()}` : ""}`;
+    const rooms = await fetchJson(url);
     latestRooms = rooms;
     if (!rooms.length) {
-      roomsGrid.innerHTML = "No available rooms found.";
+      roomsGrid.innerHTML = t("noRooms");
       return;
     }
 
@@ -114,7 +148,7 @@ async function loadRooms() {
       card.className = "room-card";
       card.innerHTML = `
         <h3>${room.title}</h3>
-        <p>${room.description || "No description"}</p>
+        <p>${room.description || t("noDesc")}</p>
         <p class="room-meta">ID: ${roomId} | ${room.price_per_night} EUR/night</p>
         <p class="room-meta">${room.location.address_line}, ${room.location.city}, ${room.location.country}</p>
       `;
@@ -122,7 +156,7 @@ async function loadRooms() {
       const quickBook = document.createElement("button");
       quickBook.type = "button";
       quickBook.className = "quick-book";
-      quickBook.textContent = "Use this room in booking form";
+      quickBook.textContent = t("useRoom");
       quickBook.addEventListener("click", () => {
         setSelectedRoom(room, card);
         window.scrollTo({ top: document.getElementById("booking-form").offsetTop - 40, behavior: "smooth" });
@@ -132,7 +166,7 @@ async function loadRooms() {
       roomsGrid.appendChild(card);
     }
   } catch (error) {
-    roomsGrid.innerHTML = "Could not load rooms.";
+    roomsGrid.innerHTML = t("loadError");
   }
 }
 
@@ -156,8 +190,10 @@ function renderConciergeRecommendations(payload) {
     return;
   }
 
+  const lang = payload.detected_language || browserLang;
+
   if (!payload.recommendations || payload.recommendations.length === 0) {
-    appendChatBubble("I could not find a perfect match right now. Try relaxing constraints like budget or location.", "assistant");
+    appendChatBubble(tLang("noMatch", lang), "assistant");
     return;
   }
 
@@ -170,17 +206,17 @@ function renderConciergeRecommendations(payload) {
     card.innerHTML = `
       <h3>${item.title}</h3>
       <p>${item.city}, ${item.country} | ${item.price_per_night} EUR/night</p>
-      <p class="chat-reason">${item.reason}</p>
+      <p class="chat-reason">${item.description}</p>
     `;
 
     const action = document.createElement("button");
     action.type = "button";
     action.className = "quick-book";
-    action.textContent = "Book this recommendation";
+    action.textContent = tLang("bookThis", lang);
     action.addEventListener("click", () => {
       const room = latestRooms.find((r) => (r.id ?? r.room_id) === item.room_id);
       if (!room) {
-        appendChatBubble("This room is no longer available. Refreshing room list...", "assistant");
+        appendChatBubble(tLang("notAvailable", lang), "assistant");
         loadRooms();
         return;
       }
@@ -192,6 +228,36 @@ function renderConciergeRecommendations(payload) {
   });
 
   chat.appendChild(wrapper);
+
+  // ── Render suggested follow-up queries as clickable chips ──
+  if (payload.suggested_queries && payload.suggested_queries.length > 0) {
+    const suggestionsWrapper = document.createElement("div");
+    suggestionsWrapper.className = "chat-suggestions";
+
+    const label = document.createElement("span");
+    label.className = "chat-suggestions-label";
+    label.textContent = tLang("tryAsking", lang);
+    suggestionsWrapper.appendChild(label);
+
+    payload.suggested_queries.forEach((suggestion) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "suggestion-chip";
+      chip.textContent = suggestion;
+      chip.addEventListener("click", () => {
+        const input = document.getElementById("concierge-input");
+        const form = document.getElementById("concierge-form");
+        if (input && form) {
+          input.value = suggestion;
+          form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+        }
+      });
+      suggestionsWrapper.appendChild(chip);
+    });
+
+    chat.appendChild(suggestionsWrapper);
+  }
+
   chat.scrollTop = chat.scrollHeight;
 }
 
@@ -204,7 +270,7 @@ function wireConciergeChat() {
     return;
   }
 
-  appendChatBubble("Hi, I am your concierge. Tell me your ideal room and budget.", "assistant");
+  appendChatBubble(t("greeting"), "assistant");
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -212,33 +278,109 @@ function wireConciergeChat() {
     if (!query) {
       return;
     }
+    if (query.length < 5) {
+      appendChatBubble(t("tooShort"), "assistant");
+      return;
+    }
 
     appendChatBubble(query, "user");
     input.value = "";
     send.disabled = true;
-    const thinking = appendChatBubble("Thinking...", "assistant");
+    const thinking = appendChatBubble(t("thinking"), "assistant");
+    if (thinking) thinking.classList.add("thinking");
+
+    // Remove previous suggestions on new query
+    document.querySelectorAll(".chat-suggestions").forEach(el => el.remove());
 
     try {
       const payload = await fetchJson("/ai/concierge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, max_results: 3 }),
+        body: JSON.stringify({
+          query,
+          max_results: 3,
+          language: browserLang,
+          premium_i18n: localStorage.getItem("premium_i18n") === "true",
+        }),
       });
 
       if (thinking) {
         thinking.remove();
       }
-      appendChatBubble(payload.assistant_message || "I found these options:", "assistant");
+      appendChatBubble(payload.assistant_message || t("foundOptions"), "assistant");
       renderConciergeRecommendations(payload);
     } catch (error) {
       if (thinking) {
         thinking.remove();
       }
-      appendChatBubble(`I could not process that request: ${error.message}`, "assistant");
+      const errorMsg = error.message.includes("at least 5 characters")
+        ? t("tooShort")
+        : `${t("errorPrefix")}${error.message}`;
+      appendChatBubble(errorMsg, "assistant");
     } finally {
       send.disabled = false;
     }
   });
+}
+
+async function loadRoomFilters(country = "") {
+  try {
+    const url = country ? `/rooms/filters?country=${encodeURIComponent(country)}` : "/rooms/filters";
+    const filters = await fetchJson(url);
+    const citySelect = document.getElementById("room-city-filter");
+    const countrySelect = document.getElementById("room-country-filter");
+    const minPriceInput = document.getElementById("room-min-price");
+    const maxPriceInput = document.getElementById("room-max-price");
+
+    if (countrySelect && filters.countries) {
+      const selectedCountry = countrySelect.value;
+      countrySelect.innerHTML = `<option value="">${t("allCountries")}</option>`;
+      filters.countries.forEach((countryOption) => {
+        const option = document.createElement("option");
+        option.value = countryOption;
+        option.textContent = countryOption;
+        if (countryOption === selectedCountry) option.selected = true;
+        countrySelect.appendChild(option);
+      });
+    }
+
+    if (citySelect) {
+      const selectedCity = citySelect.value;
+      citySelect.innerHTML = `<option value="">${t("allCities")}</option>`;
+      if (filters.cities && filters.cities.length > 0) {
+        filters.cities.forEach((city) => {
+          const option = document.createElement("option");
+          option.value = city;
+          option.textContent = city;
+          if (city === selectedCity) option.selected = true;
+          citySelect.appendChild(option);
+        });
+        citySelect.disabled = !country;
+      } else {
+        citySelect.disabled = true;
+      }
+    }
+
+    // Update price range inputs
+    if (minPriceInput && maxPriceInput && filters.price_range) {
+      minPriceInput.min = filters.price_range.min;
+      minPriceInput.max = filters.price_range.max;
+      minPriceInput.placeholder = filters.price_range.min;
+      maxPriceInput.min = filters.price_range.min;
+      maxPriceInput.max = filters.price_range.max;
+      maxPriceInput.placeholder = filters.price_range.max;
+
+      // Clear current values if they are out of range
+      if (minPriceInput.value && parseFloat(minPriceInput.value) < filters.price_range.min) {
+        minPriceInput.value = "";
+      }
+      if (maxPriceInput.value && parseFloat(maxPriceInput.value) > filters.price_range.max) {
+        maxPriceInput.value = "";
+      }
+    }
+  } catch (error) {
+    console.warn("Unable to load room filters:", error);
+  }
 }
 
 function wireBooking() {
@@ -248,13 +390,13 @@ function wireBooking() {
   bookingForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!selectedRoomId) {
-      setStatus(bookingStatus, "Choose a room first using 'Use this room in booking form'.", true);
+      setStatus(bookingStatus, t("chooseFirst"), true);
       return;
     }
 
     let token = authApi.getToken();
     if (!token) {
-      setStatus(bookingStatus, "Login first from the top header button.", true);
+      setStatus(bookingStatus, t("loginFirst"), true);
       return;
     }
 
@@ -298,7 +440,45 @@ document.addEventListener("DOMContentLoaded", async () => {
   wireModalControls();
   wireConciergeChat();
 
-  document.getElementById("refresh-rooms").addEventListener("click", loadRooms);
+  const countrySelect = document.getElementById("room-country-filter");
+  if (countrySelect) {
+    countrySelect.addEventListener("change", () => {
+      loadRoomFilters(countrySelect.value);
+    });
+  }
 
+  document.getElementById("refresh-rooms").addEventListener("click", async () => {
+    await loadRoomFilters(countrySelect?.value || "");
+    await loadRooms();
+  });
+  document.getElementById("apply-room-filters").addEventListener("click", loadRooms);
+  document.getElementById("clear-room-filters").addEventListener("click", () => {
+    const cityInput = document.getElementById("room-city-filter");
+    const countryInput = document.getElementById("room-country-filter");
+    const minPriceInput = document.getElementById("room-min-price");
+    const maxPriceInput = document.getElementById("room-max-price");
+    const availableInput = document.getElementById("room-available-filter");
+
+    if (cityInput) {
+      cityInput.value = "";
+      cityInput.disabled = true;
+    }
+    if (countryInput) {
+      countryInput.value = "";
+    }
+    if (minPriceInput) {
+      minPriceInput.value = "";
+    }
+    if (maxPriceInput) {
+      maxPriceInput.value = "";
+    }
+    if (availableInput) {
+      availableInput.checked = true;
+    }
+    loadRoomFilters();
+    loadRooms();
+  });
+
+  await loadRoomFilters();
   await loadRooms();
 });

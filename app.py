@@ -1,14 +1,14 @@
 from contextlib import asynccontextmanager
 from pathlib import Path as FileSystemPath
 
-from fastapi import Depends, FastAPI, HTTPException, Path, status
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, status
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from ai import recommend_rooms
 from database import AsyncSessionLocal, init_db
-from models import Booking, Location, Room, User
+from models import Booking, Location, Room, User, UserSettings
 from schemas import (
     BookingCreate,
     DashboardBookingRead,
@@ -24,6 +24,8 @@ from schemas import (
     UserCreate,
     UserRead,
     UserUpdate,
+    UserSettingsRead,
+    UserSettingsUpdate,
 )
 from users import auth_backend, current_active_user, fastapi_users
 from web.routes import router as web_router
@@ -70,6 +72,48 @@ fastapi_app.include_router(
 )
 
 
+# ── User settings ────────────────────────────────────────────────────────
+
+@fastapi_app.get("/users/me/settings", response_model=UserSettingsRead, tags=["users"])
+async def get_my_settings(current_user: User = Depends(current_active_user)):
+    """Return the current user's settings, creating defaults if needed."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(UserSettings).where(UserSettings.user_id == current_user.id)
+        )
+        settings = result.scalar_one_or_none()
+        if settings is None:
+            settings = UserSettings(user_id=current_user.id)
+            session.add(settings)
+            await session.commit()
+            await session.refresh(settings)
+        return UserSettingsRead.model_validate(settings)
+
+
+@fastapi_app.put("/users/me/settings", response_model=UserSettingsRead, tags=["users"])
+async def update_my_settings(
+    payload: UserSettingsUpdate,
+    current_user: User = Depends(current_active_user),
+):
+    """Update the current user's settings."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(UserSettings).where(UserSettings.user_id == current_user.id)
+        )
+        settings = result.scalar_one_or_none()
+        if settings is None:
+            settings = UserSettings(user_id=current_user.id)
+            session.add(settings)
+
+        update_data = payload.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(settings, field, value)
+
+        await session.commit()
+        await session.refresh(settings)
+        return UserSettingsRead.model_validate(settings)
+
+
 @fastapi_app.get("/all-users", response_model=list[UserRead], tags=["users"])
 async def get_all_users(current_user: User = Depends(current_active_user)):
     """Return all registered users (requires authentication)."""
@@ -92,18 +136,83 @@ async def activate_host(current_user: User = Depends(current_active_user)):
 
 
 @fastapi_app.get("/rooms", response_model=list[RoomRead], tags=["rooms"])
-async def list_available_rooms():
-    """Public endpoint: list rooms that are currently available."""
+async def list_available_rooms(
+    city: str | None = Query(None, description="Filter rooms by city name."),
+    country: str | None = Query(None, description="Filter rooms by country name."),
+    min_price: float | None = Query(None, ge=0, description="Minimum price per night."),
+    max_price: float | None = Query(None, ge=0, description="Maximum price per night."),
+    available: bool | None = Query(True, description="Show only available rooms if true."),
+):
+    """Public endpoint: list rooms with optional filters."""
     async with AsyncSessionLocal() as session:
         stmt = (
             select(Room)
+            .join(Room.location)
             .options(selectinload(Room.owner), selectinload(Room.location))
-            .where(Room.is_available.is_(True))
-            .order_by(Room.id)
         )
+
+        if available is True:
+            stmt = stmt.where(Room.is_available.is_(True))
+        elif available is False:
+            stmt = stmt.where(Room.is_available.is_(False))
+
+        if city:
+            stmt = stmt.where(func.lower(Location.city).contains(city.lower()))
+        if country:
+            stmt = stmt.where(func.lower(Location.country).contains(country.lower()))
+        if min_price is not None:
+            stmt = stmt.where(Room.price_per_night >= min_price)
+        if max_price is not None:
+            stmt = stmt.where(Room.price_per_night <= max_price)
+
+        stmt = stmt.order_by(Room.id)
         result = await session.execute(stmt)
         rooms = result.scalars().all()
         return [RoomRead.model_validate(room) for room in rooms]
+
+
+@fastapi_app.get("/rooms/filters", tags=["rooms"])
+async def list_available_room_filters(country: str | None = Query(None, description="Return cities for the selected country only.")):
+    """Return available country and city filter options based on rooms currently available."""
+    async with AsyncSessionLocal() as session:
+        country_stmt = (
+            select(Location.country)
+            .join(Room, Location.rooms)
+            .where(Room.is_available.is_(True))
+            .distinct()
+        )
+        country_result = await session.execute(country_stmt)
+        countries = sorted({value for value in country_result.scalars().all() if value})
+
+        city_stmt = (
+            select(Location.city)
+            .join(Room, Location.rooms)
+            .where(Room.is_available.is_(True))
+        )
+        if country is not None:
+            city_stmt = city_stmt.where(Location.country == country)
+        city_stmt = city_stmt.distinct()
+        city_result = await session.execute(city_stmt)
+        cities = sorted({value for value in city_result.scalars().all() if value})
+
+        # Get price range for available rooms
+        price_stmt = (
+            select(func.min(Room.price_per_night), func.max(Room.price_per_night))
+            .where(Room.is_available.is_(True))
+        )
+        if country is not None:
+            price_stmt = price_stmt.join(Room.location).where(Location.country == country)
+        price_result = await session.execute(price_stmt)
+        min_price, max_price = price_result.first()
+
+    return {
+        "cities": cities,
+        "countries": countries,
+        "price_range": {
+            "min": min_price or 0,
+            "max": max_price or 200
+        }
+    }
 
 
 @fastapi_app.get("/rooms/{room_id}", response_model=RoomRead, tags=["rooms"])
@@ -282,6 +391,8 @@ async def ai_concierge(payload: ConciergeRequest):
             session=session,
             query=payload.query,
             max_results=payload.max_results,
+            language=payload.language,
+            premium_i18n=payload.premium_i18n,
         )
         return ConciergeResponse.model_validate(result)
 

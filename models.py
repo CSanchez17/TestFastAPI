@@ -160,6 +160,9 @@ class User(Base, SQLAlchemyBaseUserTable[int]):
 
     rooms: Mapped[List["Room"]] = relationship(back_populates="owner")
     bookings: Mapped[List["Booking"]] = relationship(back_populates="guest")
+    settings: Mapped["UserSettings"] = relationship(
+        back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="selectin",
+    )
 
     @property
     def rooms_count(self) -> int:
@@ -179,3 +182,17 @@ class User(Base, SQLAlchemyBaseUserTable[int]):
 
     def __str__(self) -> str:
         return f"{self.username} (#{self.id})"
+
+
+class UserSettings(Base):
+    """Per-user feature toggles and preferences."""
+    __tablename__ = "user_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+    premium_i18n: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    user: Mapped["User"] = relationship(back_populates="settings")
+
+    def __str__(self) -> str:
+        return f"Settings for user #{self.user_id}"
